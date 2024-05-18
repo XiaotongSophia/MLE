@@ -545,6 +545,140 @@ def MLE(X:np.ndarray, k_min:int = 1, vt:int = 3, IC:str = 'AIC'):
     return Final_dist
 
 
+
+def MLE2(X:np.ndarray, k_min:int = 1, vt:int = 3, IC:str = 'AIC'):
+    """
+    Maximises the log-likelihood for each of the above distributions and chooses the best
+    by maximising the AIC weights or minimising the BIC.
+    
+    Stopping Criteria: starts with k_min=1 by default and increases by 1 each time. 
+    Stops when the same distribution is chosen for 2 or 3 consecutive k_min values 
+    (depending on graph size), returns values obtained at the smallest of these
+    k_min values.
+    
+    Parameters
+    ----------
+    X : np.ndarray
+        array of degrees of network including below k_min.
+    k_min : int, optional, default = 1
+        value from which to fit the distribution.
+    vt : int, optional, default = 3
+        number of votes required to choose a distribution.
+    IC : str, optional, default = 'AIC'
+        Can be 'AIC', 'BIC'. Which information criteria to use.
+    Returns
+    -------
+    Final_dist : list
+        [k_min, fitted distribution name (e.g. powerlaw), array of parameters, 
+         negative log-likelihood, list of AIC weights]
+    Delta : float
+        fraction of nodes below final chosen k_min value
+
+    """
+    votes = [100,10,100,10,100] # array of numbers to create a standard deviation
+                                # greater than 0.1
+    Results = {}
+    Results['Powerlaw'] = {}
+    Results['Exponential'] = {}
+    Results['Weibull'] = {}
+    Results['Normal'] = {}
+    Results['Trunc_PL'] = {}
+    Results['Lognormal'] = {}
+    Results['Poisson'] = {}
+  #  Results['Compound Poisson'] = {}
+    stop = False
+    while stop == False:#np.std(votes[-vt:]) >= 0.1: # while the last X votes have not been the same
+                                      # where X is vt.
+        x = X[X >= k_min] # only include degree values over kmin
+        delta = (X[X < k_min].size/X.size) # fraction below kmin
+        k_mean = x.mean() # mean degree for initial parameter guesses
+        
+        try:
+            inf = np.arange(np.amax(x) + 1000) # list of numbers for infinite sums required below
+        except ValueError:  #raised if x is empty.
+            inf = 1000
+        sum_log = np.sum(np.log(x))
+
+        opt_pl = minimize(powerlaw, (2), (x, sum_log, delta, k_min), method = 'SLSQP', bounds = [(0.5, 4)])
+        Results['Powerlaw'][k_min] = [opt_pl['x'], -1*opt_pl['fun']]
+                
+        opt_exp = minimize(exp_dist, (k_mean), (x, delta, k_min), method = 'SLSQP', bounds = ((0.5,k_mean + 20),))
+        Results['Exponential'][k_min] = [opt_exp['x'], -1*opt_exp['fun']]
+        
+        opt_wb = minimize(weibull, (k_mean,1),(x, inf, sum_log, delta, k_min), method = 'SLSQP', bounds=((0.05, None),(0.05, 4),))
+        Results['Weibull'][k_min] = [opt_wb['x'], - 1*opt_wb['fun']]
+        
+        opt_normal = minimize(normal, (k_mean, np.std(x)), (x, inf),method='SLSQP',bounds=[(0.,k_mean+10),(0.1,None)])
+        Results['Normal'][k_min] = [opt_normal['x'], -1*opt_normal['fun']]
+        
+        opt_tpl = minimize(trunc_powerlaw,(k_mean,1),(x, inf, delta, k_min), method = 'SLSQP', bounds=((0.5, k_mean + 20),(0.5,4),))
+        Results['Trunc_PL'][k_min] = [opt_tpl['x'], -1*opt_tpl['fun']]
+        try: #prevents valueerror when value goes out of bounds given in function
+            opt_logn = minimize(logn, (np.log(k_mean), np.log(x).std()), (x, inf, sum_log, k_min), method='TNC',bounds=[(0.,np.log(k_mean)+10),(0.01,np.log(x.std())+10)])
+            Results['Lognormal'][k_min] = [opt_logn['x'], -1*opt_logn['fun']]
+        except ValueError:
+            Results['Lognormal'][k_min] = [[0,0], 10000]
+        try:
+            poisson_max = np.amax(x)
+        except ValueError:
+            poisson_max = 1
+        if poisson_max > 170: #different method used when k_max is large, due to infinity from factorial
+            opt_p = minimize(poisson_large_k, x.mean(), (x), method='SLSQP')
+        else:
+            opt_p = minimize(poisson_dist, x.mean(), (x, delta, k_min), method='SLSQP', bounds = ((0.5, None),))
+        Results['Poisson'][k_min] = [opt_p['x'], -1*opt_p['fun']]
+        Distributions = list(Results.keys())   
+
+     #   x0 = [k_min*2, x.mean(), x.max()] 
+     #   opt_cmp = compound_poisson(x, x0)
+     #   Results['Compound Poisson'][k_min] = [opt_cmp['x'], -1*opt_p['fun']]
+        
+        AICs = []
+        BICs = []
+        
+        for i in Results.keys():
+            if i == 'Lognormal':
+                if Results[i][k_min][0][1] == 0:
+                    AICs.append(float("inf"))
+                    BICs.append(float("inf"))
+            if AIC(Results[i][k_min][1], x.size, len(Results[i][k_min][0])) == float("-inf"):
+                AICs.append(float("inf"))
+            else:
+                AICs.append(AIC(Results[i][k_min][1], x.size, len(Results[i][k_min][0])))
+            if BIC(Results[i][k_min][1], x.size, len(Results[i][k_min][0])) == float("-inf"):    
+                BICs.append(float("inf"))
+            else:
+                BICs.append(BIC(Results[i][k_min][1], x.size, len(Results[i][k_min][0])))
+        weights = [] 
+        weight_total = 0
+        for i in AICs:
+            weight_total += np.exp(-1*(i - np.min(AICs))/2)
+            
+        for i in AICs:
+            weights += [np.exp(-1*(i - np.min(AICs))/2)/weight_total]
+        
+        if IC == 'AIC':
+           votes.append(np.argmax(weights).astype(np.int32))
+            
+        if IC == 'BIC':
+           votes.append(np.argmin(BICs).astype(np.int32))
+        #if we only want to fit at a specific k_min, break the loop and return the first result   
+        if vt == 1:
+            Delta = (X[X < k_min]).size/X.size
+            Final_dist = [k_min, Distributions[0],Results[Distributions[0]][k_min], Delta]
+            return Final_dist
+        if vt > 1:
+            if np.std(votes[-vt:]) <= 0.1:
+                stop = True
+        k_min += 1
+        
+    Delta = (X[X < (k_min-vt)]).size/X.size
+    Final_dist = [k_min-vt, Distributions[0],Results[Distributions[0]][k_min-vt], Delta]
+    if len(weights) > 0:
+        Final_dist.append(weights)
+    return Final_dist
+
+
 def opt_single_dist(X, result, k_min):
     """
     For bootstrapping. Fits only the desired distribution to a boostrapped sample of a 
