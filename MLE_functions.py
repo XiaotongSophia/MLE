@@ -546,7 +546,7 @@ def MLE(X:np.ndarray, k_min:int = 1, vt:int = 3, IC:str = 'AIC'):
 
 
 
-def MLE2(X:np.ndarray, k_min:int = 1, vt:int = 3, IC:str = 'AIC'):
+def MLE_test(X:np.ndarray, k_min:int = 1, vt:int = 3, IC:str = 'AIC'):
     """
     Maximises the log-likelihood for each of the above distributions and chooses the best
     by maximising the AIC weights or minimising the BIC.
