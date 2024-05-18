@@ -939,3 +939,69 @@ def fit(Name, G, k_min:int=1, vt=None, plot_type='auto', save=False, saveloc=Non
           result[1], 'distribution with parameters', np.round(result[2][0],2))
     
     return result
+
+
+
+
+def fit_test(Name, G, k_min:int=1, vt=None, plot_type='auto', save=False, saveloc=None, IC='AIC'):
+    """
+    Parameters
+    ----------
+    Name : String
+        Network/file name for results
+    G : array-like
+        degree list
+    k_min : int, optional
+        Initial k_min value. The default is 1.
+    vt : int, optional
+        Number of times a distribution must be chosen before it is returned
+        as the correct one. If None, chosen automatically.
+    plot_type : String: 'auto','pdf', 'ccdf', 'both', 'none', optional
+        Determines what plots the code will generate. Default is 'auto'.
+    save : Boolean.
+        True if the plots are to be saved. The default is False
+    saveloc : String
+        filepath for location to save plots. Only required if save is True
+        The default is None. 
+    IC : String : 'AIC' or 'BIC'
+        Which information criteria to use. The default is AIC
+    Returns
+    -------
+    result : list 
+        List [kmin, distribution name, parameters, Delta] 
+
+    """
+    
+    X = degree_list(G) # Get the degree list
+    if len(X) < 2500:
+        if vt == None:
+            vt = 2 # for small datasets we need fewer consecutive votes to 
+                  # determine the distribution
+        if plot_type == 'auto':
+            plot_type = 'ccdf' # for small datasets we do not want to display the PDF
+    else:
+        if vt == None:
+            vt = 3
+        if plot_type == 'auto':
+            plot_type = 'both' # for larger datasets we display both PDF and 
+                               # CCDF
+                  
+    result = MLE_test(X, k_min, vt, IC) # Perform the MLE using kmin=1 as default
+    N, P, p = empirical(X)	# Get the unique degree list, empirical CCDF and 
+                            # PDF values
+    
+    Input = np.arange(result[0],np.amax(X)+1) # generate complete list of integers
+                                              # kmin to kmax
+                                              
+            
+    if plot_type == 'both' or plot_type == 'pdf':
+        pdf = PDF(result, Input, N, P)
+        plotting(N,Input, pdf, result, p, 'PDF', Name, save, saveloc)
+    if plot_type == 'both' or plot_type == 'ccdf':
+        ccdf = CCDF(result, Input, N, P)
+        plotting(N,Input, ccdf, result, P, 'CCDF', Name, save, saveloc)
+        
+    print('For k greater than or equal to', result[0], 'the degree distribution follows a', 
+          result[1], 'distribution with parameters', np.round(result[2][0],2))
+    
+    return result
